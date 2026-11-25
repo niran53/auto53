@@ -1,0 +1,56 @@
+import { chromium } from '/opt/npm-tools/node_modules/playwright/index.mjs';
+const B = 'http://localhost:8765/';
+const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
+const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
+const errs = [];
+page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
+page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+await page.addInitScript(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; }; });
+const shot = (n, full = false) => page.screenshot({ path: `/home/claude/shots/${n}.png`, fullPage: full });
+await page.goto(B + '#/import'); await page.waitForTimeout(800);
+await shot('01-import');
+// error sample
+await page.click('[data-sample="errors"]'); await page.waitForTimeout(500);
+await shot('02-errors', true);
+console.log('confirm disabled (errors):', await page.$eval('[data-act="confirm"]', (b) => b.disabled));
+// upload medium xlsx
+await page.click('[data-act="clear"]');
+await page.setInputFiles('#file', 'samples/sample-medium.xlsx'); await page.waitForTimeout(800);
+console.log('after xlsx:', await page.$eval('.pill', (e) => e.textContent), '|', await page.$eval('#h-chk', () => document.querySelector('.stats').innerText.replace(/\n/g, ' ')));
+await shot('03-preview', true);
+await page.click('[data-act="confirm"]'); await page.waitForTimeout(600);
+await shot('04-schedule');
+await page.click('#b-run'); await page.waitForTimeout(400);
+await shot('05-running');
+await page.click('#b-cancel'); await page.waitForTimeout(300);
+console.log('after cancel state:', await page.$eval('.state', (e) => e.textContent));
+await page.click('#b-retry');
+await page.waitForFunction(() => document.querySelector('.state')?.textContent.includes('เสร็จ'), null, { timeout: 60000 });
+await page.waitForTimeout(300);
+await shot('06-done', true);
+console.log('done:', await page.$eval('#status .pill', (e) => e.textContent));
+await page.click('#b-view'); await page.waitForTimeout(600);
+await shot('07-results', true);
+await page.fill('#subj-q', 'โปรแกรม'); await page.waitForTimeout(300);
+await shot('08-search');
+await page.click('[data-kind="teacher"]'); await page.waitForTimeout(300);
+await shot('09-teacher');
+for (const t of ['check', 'metrics', 'list']) { await page.click(`[data-rtab="${t}"]`); await page.waitForTimeout(300); await shot('10-' + t, true); }
+await page.click('#r-confirm'); await page.waitForTimeout(400);
+await page.click('#r-print'); await page.waitForTimeout(300);
+await shot('11-printdlg');
+await page.check('input[value="teacher"]');
+await page.click('#do-print'); await page.waitForTimeout(500);
+console.log('print called:', await page.evaluate(() => window.__printed), 'pages:', await page.$$eval('#print-root .p-page', (x) => x.length));
+await page.emulateMedia({ media: 'print' });
+await page.pdf({ path: '/home/claude/shots/result.pdf', format: 'A4', landscape: true, printBackground: true, preferCSSPageSize: true });
+await page.emulateMedia({ media: 'screen' });
+const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#r-xlsx')]);
+await dl.saveAs('/home/claude/shots/result.xlsx');
+await page.goto(B + '#/history'); await page.waitForTimeout(600); await shot('12-history');
+// mobile
+const m = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
+await m.goto(B + '#/import'); await m.waitForTimeout(600); await m.screenshot({ path: '/home/claude/shots/13-mobile-import.png', fullPage: false });
+await m.click('#btn-help'); await m.waitForTimeout(300); await m.screenshot({ path: '/home/claude/shots/14-mobile-help.png' });
+console.log('ERRORS:', errs.length ? errs.join('\n') : 'none');
+await browser.close();
